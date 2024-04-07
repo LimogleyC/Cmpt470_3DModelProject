@@ -197,54 +197,21 @@ def visualize_point_cloud(point_cloud):
     # Close the visualizer
     vis.destroy_window()
 
-def create_point_cloud(your_3d_points):
-    """
-    Creates a point cloud from 3D points.
+def create_mesh_from_point_cloud(point_cloud):
+    # Estimate normals
+    point_cloud.estimate_normals()
 
-    Args:
-        your_3d_points (numpy.ndarray): Nx3 array of 3D coordinates.
+    # Calculate average distance between points
+    distances = point_cloud.compute_nearest_neighbor_distance()
+    avg_dist = np.mean(distances)
+    radius = 1.5 * avg_dist
 
-    Returns:
-        open3d.geometry.PointCloud: The created point cloud.
-    """
-    point_cloud = o3d.geometry.PointCloud()
-    point_cloud.points = o3d.utility.Vector3dVector(your_3d_points)
-    return point_cloud
+    # Create mesh using ball pivoting algorithm
+    mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
+        point_cloud, o3d.utility.DoubleVector([radius, radius * 2])
+    )
 
-def create_point_cloud_with_colors(points_3d, images, img_points, colors=None):
-    """
-    Creates a point cloud from 3D points with colors attributed from images.
-
-    Args:
-        points_3d (numpy.ndarray): Nx3 array of 3D coordinates.
-        images (list): List of images.
-        img_points (list): List of 2D pixel coordinates of the 3D points in the images.
-        colors (list): List of colors corresponding to the 3D points.
-
-    Returns:
-        open3d.geometry.PointCloud: The created point cloud with colors.
-    """
-    num_images = len(images)
-    num_points = points_3d.shape[0]
-
-    if colors is None:
-        colors = []
-    
-    for i in range(num_images -1):
-        image = images[i]
-        img_point = img_points[i]
-
-        # Sample color from the image at the pixel coordinates
-        max_x, max_y = image.shape[1] - 1, image.shape[0] - 1
-        img_colors = [image[int(pt[1]), int(pt[0])] if 0 <= pt[0] < max_x and 0 <= pt[1] < max_y else image[max_y-1, max_x-1] for pt in img_point]
-
-        colors.extend(img_colors)
-
-    # Create point cloud
-    point_cloud = o3d.geometry.PointCloud()
-    point_cloud.points = o3d.utility.Vector3dVector(points_3d)
-    point_cloud.colors = o3d.utility.Vector3dVector(colors)
-    return point_cloud
+    return mesh
 
 if __name__ == "__main__":
     src_dir = 'checkerboard'
@@ -262,7 +229,7 @@ if __name__ == "__main__":
     obj_3d = np.array([])
     img_points_list = []
     # matches_list = []
-    for i in range(len(images) - 1):
+    for i in range(2):#len(images)-1
         # i = 0
         key_pointL, key_pointR, matches = find_matches(images[i], images[i+1])
         # key_points_list.append(key_pointL)
@@ -278,13 +245,11 @@ if __name__ == "__main__":
             obj_3d = points_3D
         else:
             obj_3d = np.concatenate((obj_3d, points_3D), axis=0)
-    # print("Number of images processed:", len(images))
-    # print("Number of key points lists:", len(key_points_list))
-    # print("Number of matches lists:", len(matches_list))
-    # point_cloud_with_colors = create_point_cloud_with_colors(obj_3d, images, key_points_list, matches_list)
-    # visualize_point_cloud(point_cloud_with_colors)
-    # # print(obj_3d)
+    
     point_cloud = create_point_cloud(obj_3d)
-    # point_cloud_with_colors = create_point_cloud_with_colors(obj_3d, images, img_points_list)
-    # visualize_point_cloud(point_cloud_with_colors)
+    
+    # mesh = create_mesh_from_point_cloud(point_cloud)
     visualize_point_cloud(point_cloud)
+    # mesh = create_mesh_from_point_cloud(point_cloud)
+    # Visualize the mesh with the overlaid image
+    # o3d.visualization.draw_geometries([mesh])
