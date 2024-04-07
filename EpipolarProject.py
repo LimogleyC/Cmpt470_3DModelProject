@@ -28,8 +28,8 @@ def calibrate(n_frames, src_dir='', img_template='image_%d.jpg'):
     # I included the opencv calibration sequence but you should take your own also
     # in the opencv sequence pattern is 6x7
     
-    corners_3d = np.zeros((6*7,3), np.float32)
-    corners_3d[:,:2] = np.mgrid[0:6,0:7].T.reshape(-1,2) # generates each point on the 2d plane
+    corners_3d = np.zeros((8*6,3), np.float32)
+    corners_3d[:,:2] = np.mgrid[0:8,0:6].T.reshape(-1,2) # generates each point on the 2d plane
 
     # Arrays to store object points and image points from all the images.
     obj_points = []  # 3d point in real world space
@@ -48,7 +48,7 @@ def calibrate(n_frames, src_dir='', img_template='image_%d.jpg'):
         img_gs = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         # Find the chess board corners
         # use function ret, corners = cv2.findChessboardCorners
-        ret, corners = cv2.findChessboardCorners(img_gs, (6,7), None)
+        ret, corners = cv2.findChessboardCorners(img_gs, (8,6), None)
         
         # If found, add object points, image points (after refining them)
         if ret:     
@@ -61,7 +61,7 @@ def calibrate(n_frames, src_dir='', img_template='image_%d.jpg'):
 
             # Draw and display the corners
             # use drawChessboardCorners
-            # cv2.drawChessboardCorners(img, (6,7), corners2, ret)
+            # cv2.drawChessboardCorners(img, (9,7), corners2, ret)
             # cv2.imshow('img', img)
             # cv2.waitKey(500)
             img_id += 1
@@ -117,12 +117,20 @@ def triangulate_points(pts1, pts2, R, t, K):
     # Convert the projection matrices to the camera coordinate system
     P1 = K @ P1
     P2 = K @ P2
-
     # Triangulate the 3D points
     points_4D = cv2.triangulatePoints(P1, P2, pts1, pts2)
     points_3D = points_4D / points_4D[3]  # Convert from homogeneous to Cartesian coordinates
     points_3D = points_3D[:3, :].T
-    return points_3D
+    
+    # Project 3D points onto the images to get pixel coordinates
+    img_points1, _ = cv2.projectPoints(points_3D, np.eye(3), np.zeros((3, 1)), K, distCoeffs=None)
+    img_points1 = img_points1.squeeze()
+
+    # print("Triangulated 3D points:", points_3D)
+    # print("Image points:", img_points1)
+
+    return points_3D, img_points1
+    # return points_3D
 
 def create_point_cloud(points_3d):
     """
@@ -163,17 +171,31 @@ def read_images(n_frames, src_dir, img_template):
             print('Capture of Image {} was unsuccessful'.format(img_id + 1))
             break
     return images
+# Define custom key callbacks for navigation
 
-def visualize_point_cloud(points_array):
+def visualize_point_cloud(point_cloud):
     """
     Visualizes a point cloud using Open3D.
 
     Args:
-        point_cloud (open3d.geometry.PointCloud): The point cloud to visualize.
+        point_cloud (open3d.geometry.PointCloud): Point cloud to visualize.
     """
-    point_cloud = o3d.geometry.PointCloud()
-    point_cloud.points = o3d.utility.Vector3dVector(points_array)
-    o3d.visualization.draw_geometries([point_cloud])
+    # Create visualizer object
+    vis = o3d.visualization.Visualizer()
+
+    # Add point cloud to the visualizer
+    vis.create_window()
+    vis.add_geometry(point_cloud)
+
+    # Set rendering options
+    # render_options = vis.get_render_option()
+    # render_options.point_size = 5  # Adjust point size as needed
+
+    # Run visualization
+    vis.run()
+
+    # Close the visualizer
+    vis.destroy_window()
 
 def create_point_cloud(your_3d_points):
     """
@@ -189,27 +211,80 @@ def create_point_cloud(your_3d_points):
     point_cloud.points = o3d.utility.Vector3dVector(your_3d_points)
     return point_cloud
 
+def create_point_cloud_with_colors(points_3d, images, img_points, colors=None):
+    """
+    Creates a point cloud from 3D points with colors attributed from images.
+
+    Args:
+        points_3d (numpy.ndarray): Nx3 array of 3D coordinates.
+        images (list): List of images.
+        img_points (list): List of 2D pixel coordinates of the 3D points in the images.
+        colors (list): List of colors corresponding to the 3D points.
+
+    Returns:
+        open3d.geometry.PointCloud: The created point cloud with colors.
+    """
+    num_images = len(images)
+    num_points = points_3d.shape[0]
+
+    if colors is None:
+        colors = []
+    
+    for i in range(num_images -1):
+        image = images[i]
+        img_point = img_points[i]
+
+        # Sample color from the image at the pixel coordinates
+        max_x, max_y = image.shape[1] - 1, image.shape[0] - 1
+        img_colors = [image[int(pt[1]), int(pt[0])] if 0 <= pt[0] < max_x and 0 <= pt[1] < max_y else image[max_y-1, max_x-1] for pt in img_point]
+
+        colors.extend(img_colors)
+
+    # Create point cloud
+    point_cloud = o3d.geometry.PointCloud()
+    point_cloud.points = o3d.utility.Vector3dVector(points_3d)
+    point_cloud.colors = o3d.utility.Vector3dVector(colors)
+    return point_cloud
+
 if __name__ == "__main__":
-    src_dir = 'cv_chessboard'
-    n_frames = 13
+    src_dir = 'checkerboard'
+    n_frames = 15
     img_template = 'image_%d.jpg' 
  
     # calibrate camera from n_frames 
     K, dist, images = calibrate(n_frames, src_dir, img_template)
 
-    images = read_images(15, 'templeSparseRing', 'templeSR%04d.png')
+    # print(K)
+    
+    # images = read_images(15, 'templeSparseRing', 'templeSR%04d.png')
+    images = read_images(24, 'chest', 'image_%d.jpg')
+    # images = read_images(22, 'rock', 'image_%d.jpg')
     obj_3d = np.array([])
-    for i in range(len(images)-1):
-        i = 0
+    img_points_list = []
+    # matches_list = []
+    for i in range(len(images) - 1):
+        # i = 0
         key_pointL, key_pointR, matches = find_matches(images[i], images[i+1])
+        # key_points_list.append(key_pointL)
+        # matches_list.append(matches)
         pts1, pts2, E, R, t = estimate_Essential_Matrix(key_pointL, key_pointR, matches, K)
-        points_3D = triangulate_points(pts1, pts2, R, t, K)
-        print(obj_3d.size)
+        # points_3D = triangulate_points(pts1, pts2, R, t, K)
+        points_3D, img_points = triangulate_points(pts1, pts2, R, t, K)
+        img_points_list.append(img_points)
+    
+        # print(obj_3d.size)
 
         if obj_3d.size == 0:
             obj_3d = points_3D
         else:
             obj_3d = np.concatenate((obj_3d, points_3D), axis=0)
+    # print("Number of images processed:", len(images))
+    # print("Number of key points lists:", len(key_points_list))
+    # print("Number of matches lists:", len(matches_list))
+    # point_cloud_with_colors = create_point_cloud_with_colors(obj_3d, images, key_points_list, matches_list)
+    # visualize_point_cloud(point_cloud_with_colors)
     # # print(obj_3d)
-    # # point_cloud = create_point_cloud(obj_3d)
-    visualize_point_cloud(obj_3d)
+    point_cloud = create_point_cloud(obj_3d)
+    # point_cloud_with_colors = create_point_cloud_with_colors(obj_3d, images, img_points_list)
+    # visualize_point_cloud(point_cloud_with_colors)
+    visualize_point_cloud(point_cloud)
